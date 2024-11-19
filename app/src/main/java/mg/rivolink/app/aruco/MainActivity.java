@@ -6,10 +6,18 @@ import android.content.Intent;
 import android.content.DialogInterface;
 
 import android.os.Bundle;
-import android.support.v7.app.AppCompatActivity;
+import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
+import android.widget.Spinner;
+import android.widget.TextView;
+
+//import android.support.v7.app.AppCompatActivity;
 
 import android.view.WindowManager;
 import android.widget.Toast;
+
+import androidx.appcompat.app.AppCompatActivity;
 
 import java.util.ArrayList;
 import java.util.LinkedList;
@@ -18,6 +26,7 @@ import java.util.List;
 import mg.rivolink.app.aruco.renderer.Renderer3D;
 import mg.rivolink.app.aruco.utils.CameraParameters;
 import mg.rivolink.app.aruco.view.PortraitCameraLayout;
+import mg.rivolink.app.aruco.utils.ArucoParameters;
 
 import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.CameraBridgeViewBase;
@@ -44,7 +53,9 @@ import org.rajawali3d.view.SurfaceView;
 public class MainActivity extends AppCompatActivity implements CvCameraViewListener2 {
 
 	public static final float SIZE = 0.04f;
-	
+
+	private TextView textInfo;
+
 	private Mat cameraMatrix;
 	private MatOfDouble distCoeffs;
 
@@ -57,6 +68,7 @@ public class MainActivity extends AppCompatActivity implements CvCameraViewListe
 	private MatOfInt ids;
 	private List<Mat> corners;
 	private Dictionary dictionary;
+	private Dictionary selectedDictionary;
 	private DetectorParameters parameters;
 
 	private Renderer3D renderer;
@@ -93,7 +105,7 @@ public class MainActivity extends AppCompatActivity implements CvCameraViewListe
 
         setContentView(R.layout.main_layout);
 
-        camera = ((PortraitCameraLayout)findViewById(R.id.camera_layout)).getCamera();
+		camera = ((PortraitCameraLayout)findViewById(R.id.camera_layout)).getCamera();
         camera.setVisibility(SurfaceView.VISIBLE);
         camera.setCvCameraViewListener(this);
 
@@ -103,11 +115,46 @@ public class MainActivity extends AppCompatActivity implements CvCameraViewListe
 		surface.setTransparent(true);
 		surface.setSurfaceRenderer(renderer);
 
+		// Initialize TextView for showing the number of ArUco markers detected
+		textInfo = findViewById(R.id.text_info);
+
+		Spinner dictionarySpinner = findViewById(R.id.dictionarySpinner);
+
+		// Get the available dictionary names from ArucoParameters
+		String[] dictionaryNames = ArucoParameters.getAvailableDictionaries();
+
+		// Populate the spinner with dictionary names
+		ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, dictionaryNames);
+		adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+		dictionarySpinner.setAdapter(adapter);
+
+		// Set a listener for selecting a dictionary
+		dictionarySpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+			@Override
+			public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+				String selectedDictionaryName = parent.getItemAtPosition(position).toString();
+
+				// Update the selected ArUco dictionary using ArucoParameters
+				selectedDictionary = ArucoParameters.getDictionaryByName(selectedDictionaryName);
+				dictionary = selectedDictionary;
+			}
+
+			@Override
+			public void onNothingSelected(AdapterView<?> parent) {
+				// Default behavior if nothing is selected
+			}
+		});
+
+		// Set an initial dictionary if needed
+//		selectedDictionary = ArucoParameters.getDictionaryByName("DICT_6X6_50");
+//		dictionary = selectedDictionary;
+
 	}
 
 	@Override
 	protected void onActivityResult(int requestCode, int resultCode, Intent data){
-		CameraParameters.onActivityResult(this, requestCode, resultCode, data, cameraMatrix, distCoeffs);
+        super.onActivityResult(requestCode, resultCode, data);
+        CameraParameters.onActivityResult(this, requestCode, resultCode, data, cameraMatrix, distCoeffs);
 	}
 
 	@Override
@@ -169,6 +216,23 @@ public class MainActivity extends AppCompatActivity implements CvCameraViewListe
 				draw3dCube(rgb, cameraMatrix, distCoeffs, rvecs.row(i), tvecs.row(i), new Scalar(255, 0, 0));
 				Aruco.drawAxis(rgb, cameraMatrix, distCoeffs, rvecs.row(i), tvecs.row(i), SIZE/2.0f);
 			}
+
+			// Update UI with the number of detected markers
+			final int numberOfMarkers = ids.toArray().length;
+			runOnUiThread(new Runnable() {
+				@Override
+				public void run() {
+					textInfo.setText("" + numberOfMarkers);
+				}
+			});
+		} else {
+			// No markers detected, set the count to zero
+			runOnUiThread(new Runnable() {
+				@Override
+				public void run() {
+					textInfo.setText("0");
+				}
+			});
 		}
 
 		return rgb;

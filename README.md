@@ -44,6 +44,13 @@ Alternative method: copy all the native opencv libraries into the project, for t
 - download these [libraries](https://github.com/RivoLink/opencv-android/tree/master/opencv3_4_4_contrib/native/libs)
 - then, paste all in this [directory](https://github.com/RivoLink/Aruco-Android/tree/master/opencv344-contrib/src/main/jniLibs) of your project
 
+### Updated on 20241119
+For newer Android Studio, you need to set:
+- Gradle wrapper with Gradle version lower than 8.0 (already added).
+- Java version lower than 16 for Gradle.
+
+In File->Settings->Build, Execution, Deployment->Build Tools->Gradle, choose Gradle JDK version that is lower than 16.
+
 ## Using
 
 Camera must be calibrated before detect markers, for that, 

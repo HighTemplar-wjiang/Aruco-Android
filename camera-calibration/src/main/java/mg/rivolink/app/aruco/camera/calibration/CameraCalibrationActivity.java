@@ -20,11 +20,13 @@ import android.view.View.OnTouchListener;
 import android.view.WindowManager;
 import android.widget.Toast;
 import android.content.Intent;
-import android.support.v7.app.AppCompatActivity;
+//import android.support.v7.app.AppCompatActivity;
+
+import androidx.appcompat.app.AppCompatActivity;
 
 import mg.rivolink.app.aruco.camera.calibration.view.PortraitCameraLayout;
 
-public class CameraCalibrationActivity extends AppCompatActivity 
+public class CameraCalibrationActivity extends AppCompatActivity
 	implements OnTouchListener, CvCameraViewListener2, CameraCalibrator.OnAddFrameListener {
 		
 	private Mat rgb;
