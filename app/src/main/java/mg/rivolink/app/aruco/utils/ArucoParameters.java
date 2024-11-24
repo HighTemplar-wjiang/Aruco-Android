@@ -3,12 +3,12 @@ package mg.rivolink.app.aruco.utils;
 import org.opencv.aruco.Aruco;
 import org.opencv.aruco.Dictionary;
 
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 public class ArucoParameters {
 
-    private static final Map<String, Integer> arucoDictionaries = new HashMap<>();
+    private static final Map<String, Integer> arucoDictionaries = new LinkedHashMap<>();
 
     static {
         arucoDictionaries.put("DICT_4X4_50", Aruco.DICT_4X4_50);
@@ -27,7 +27,7 @@ public class ArucoParameters {
         arucoDictionaries.put("DICT_7X7_100", Aruco.DICT_7X7_100);
         arucoDictionaries.put("DICT_7X7_250", Aruco.DICT_7X7_250);
         arucoDictionaries.put("DICT_7X7_1000", Aruco.DICT_7X7_1000);
-        arucoDictionaries.put("DICT_ARUCO_ORIGINAL", Aruco.DICT_ARUCO_ORIGINAL);
+        arucoDictionaries.put("DICT_ORIGINAL", Aruco.DICT_ARUCO_ORIGINAL);
     }
 
     // Method to get dictionary ID by name

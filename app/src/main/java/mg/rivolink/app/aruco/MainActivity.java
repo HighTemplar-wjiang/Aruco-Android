@@ -1,16 +1,24 @@
 package mg.rivolink.app.aruco;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Intent;
-import android.content.DialogInterface;
 
+import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Spinner;
 import android.widget.TextView;
+import android.widget.Button;
+
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.os.Build;
+import android.provider.Settings;
+import androidx.annotation.RequiresApi;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 //import android.support.v7.app.AppCompatActivity;
 
@@ -19,11 +27,24 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import android.content.ContentValues;
+import android.graphics.Bitmap;
+import android.net.Uri;
+import android.os.Environment;
+import android.provider.MediaStore;
+
+import java.io.File;
+import java.io.OutputStream;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Locale;
 
 import mg.rivolink.app.aruco.renderer.Renderer3D;
+import mg.rivolink.app.aruco.utils.ArucoDetection;
 import mg.rivolink.app.aruco.utils.CameraParameters;
 import mg.rivolink.app.aruco.view.PortraitCameraLayout;
 import mg.rivolink.app.aruco.utils.ArucoParameters;
@@ -37,6 +58,7 @@ import org.opencv.aruco.Aruco;
 import org.opencv.aruco.DetectorParameters;
 import org.opencv.aruco.Dictionary;
 import org.opencv.calib3d.Calib3d;
+import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfDouble;
@@ -53,14 +75,27 @@ import org.rajawali3d.view.SurfaceView;
 public class MainActivity extends AppCompatActivity implements CvCameraViewListener2 {
 
 	public static final float SIZE = 0.04f;
+	private static final int REQUEST_MANAGE_EXTERNAL_STORAGE = 1;
 
 	private TextView textInfo;
+	private Button btnTakePhoto;
+	private Button btnRecordVideo;
+
+	// Video recording.
+	private MediaRecorder mediaRecorder;
+	private boolean isRecording = false;
+	private String videoFilePath;
 
 	private Mat cameraMatrix;
 	private MatOfDouble distCoeffs;
+	private long lastFrameTime;
+	private long currentFrameTime;
+	private long movingAverageTime;
 
 	private Mat rgb;
+	private Mat lastRgb;
 	private Mat gray;
+	private Mat brightGray;
 
 	private Mat rvecs;
 	private Mat tvecs;
@@ -70,6 +105,7 @@ public class MainActivity extends AppCompatActivity implements CvCameraViewListe
 	private Dictionary dictionary;
 	private Dictionary selectedDictionary;
 	private DetectorParameters parameters;
+	private static List<Double> alphaList = Arrays.asList(0.2, 0.5, 3.0);
 
 	private Renderer3D renderer;
 	private CameraBridgeViewBase camera;
@@ -118,6 +154,30 @@ public class MainActivity extends AppCompatActivity implements CvCameraViewListe
 		// Initialize TextView for showing the number of ArUco markers detected
 		textInfo = findViewById(R.id.text_info);
 
+		// Initialize Take Photo button
+		btnTakePhoto = findViewById(R.id.btn_take_photo);
+		btnTakePhoto.setOnClickListener(new View.OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				takePhoto();
+			}
+		});
+
+		// Take video button.
+		btnRecordVideo = findViewById(R.id.btn_record_video);
+		btnRecordVideo.setOnClickListener(new View.OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				if (isRecording) {
+					stopRecording();
+					btnRecordVideo.setText("Record Video");
+				} else {
+					startRecording();
+					btnRecordVideo.setText("Stop Recording");
+				}
+			}
+		});
+
 		Spinner dictionarySpinner = findViewById(R.id.dictionarySpinner);
 
 		// Get the available dictionary names from ArucoParameters
@@ -145,6 +205,9 @@ public class MainActivity extends AppCompatActivity implements CvCameraViewListe
 			}
 		});
 
+		// Request all files access
+		requestAllFileAccess();
+
 		// Set an initial dictionary if needed
 //		selectedDictionary = ArucoParameters.getDictionaryByName("DICT_6X6_50");
 //		dictionary = selectedDictionary;
@@ -155,7 +218,19 @@ public class MainActivity extends AppCompatActivity implements CvCameraViewListe
 	protected void onActivityResult(int requestCode, int resultCode, Intent data){
         super.onActivityResult(requestCode, resultCode, data);
         CameraParameters.onActivityResult(this, requestCode, resultCode, data, cameraMatrix, distCoeffs);
+		if (requestCode == REQUEST_MANAGE_EXTERNAL_STORAGE) {
+			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+				if (Environment.isExternalStorageManager()) {
+					// Permission granted
+					Toast.makeText(this, "All files access granted", Toast.LENGTH_SHORT).show();
+				} else {
+					// Permission denied
+					Toast.makeText(this, "All files access denied", Toast.LENGTH_SHORT).show();
+				}
+			}
+		}
 	}
+
 
 	@Override
     public void onResume(){
@@ -186,9 +261,14 @@ public class MainActivity extends AppCompatActivity implements CvCameraViewListe
 	@Override
 	public void onCameraViewStarted(int width, int height){
 		rgb = new Mat();
+		lastRgb = new Mat();
+		brightGray = new Mat();
 		corners = new LinkedList<>();
 		parameters = DetectorParameters.create();
-		dictionary = Aruco.getPredefinedDictionary(Aruco.DICT_6X6_50);
+		dictionary = Aruco.getPredefinedDictionary(Aruco.DICT_4X4_50);
+		lastFrameTime = System.currentTimeMillis();
+		// Create an instance of ArucoDetection
+//		arucoDetection = new ArucoDetection(dictionary, parameters);
 	}
 
 	@Override
@@ -196,16 +276,51 @@ public class MainActivity extends AppCompatActivity implements CvCameraViewListe
 		if(!CameraParameters.isLoaded()){
 			return inputFrame.rgba();
 		}
+
+		String detectCode = "O";
 		
 		Imgproc.cvtColor(inputFrame.rgba(), rgb, Imgproc.COLOR_RGBA2RGB);
 		gray = inputFrame.gray();
 
+		// Perform detection
+//		arucoDetection.detectArucoCodes(gray);
+
+		// Retrieve detected IDs and corners
+//		ids = arucoDetection.getIds();
+//		corners = arucoDetection.getCorners();
+
+
+		// Create inverse of gray
+		Core.bitwise_not(gray, brightGray);
+
+		// Detect markers in gray
 		ids = new MatOfInt();
 		corners.clear();
-
 		Aruco.detectMarkers(gray, dictionary, corners, ids, parameters);
+		if(corners.isEmpty())
+		{
+			// Detect markers in invGray
+			Aruco.detectMarkers(brightGray, dictionary, corners, ids, parameters);
+			detectCode = "I";
+		}
 
-		if(corners.size()>0){
+		// Still empty.
+		if(corners.isEmpty())
+		{
+			for(Double alpha : alphaList)
+			{
+				gray.convertTo(brightGray, -1, alpha, 0);
+				Core.normalize(brightGray, brightGray, 0, 255, Core.NORM_MINMAX);
+				Aruco.detectMarkers(brightGray, dictionary, corners, ids, parameters);
+				detectCode = String.format(Locale.CHINA,"%.1f", alpha);
+				if(!corners.isEmpty()) {
+					break;
+				}
+			}
+		}
+
+		long numberOfMarkers = 0;
+		if(!corners.isEmpty()){
 			Aruco.drawDetectedMarkers(rgb, corners, ids);
 
 			rvecs = new Mat();
@@ -217,30 +332,146 @@ public class MainActivity extends AppCompatActivity implements CvCameraViewListe
 				Aruco.drawAxis(rgb, cameraMatrix, distCoeffs, rvecs.row(i), tvecs.row(i), SIZE/2.0f);
 			}
 
-			// Update UI with the number of detected markers
-			final int numberOfMarkers = ids.toArray().length;
-			runOnUiThread(new Runnable() {
-				@Override
-				public void run() {
-					textInfo.setText("" + numberOfMarkers);
-				}
-			});
+			numberOfMarkers = ids.total();
+
 		} else {
 			// No markers detected, set the count to zero
-			runOnUiThread(new Runnable() {
-				@Override
-				public void run() {
-					textInfo.setText("0");
-				}
-			});
+		}
+
+		// Record frame time.
+		currentFrameTime = System.currentTimeMillis();
+		if(movingAverageTime == 0)
+		{
+			movingAverageTime = currentFrameTime - lastFrameTime;
+		}
+		else {
+			movingAverageTime = (long) (movingAverageTime * 0.8 + (currentFrameTime - lastFrameTime) * 0.2);
+		}
+
+		// Update UI with the total time for one frame
+		final String statusText = numberOfMarkers +  "|" +  movingAverageTime + "ms" + "|" + detectCode;
+		runOnUiThread(new Runnable() {
+			@Override
+			public void run() {
+				textInfo.setText(statusText);
+			}
+		});
+		lastFrameTime = currentFrameTime;
+
+		lastRgb = rgb.clone();
+
+		// Write the frame to the MediaRecorder if recording
+		if (isRecording) {
+			try {
+				Bitmap bitmap = Bitmap.createBitmap(lastRgb.cols(), lastRgb.rows(), Bitmap.Config.ARGB_8888);
+				org.opencv.android.Utils.matToBitmap(lastRgb, bitmap);
+
+				android.graphics.Canvas canvas = mediaRecorder.getSurface().lockCanvas(null);
+				canvas.drawBitmap(bitmap, 0, 0, null);
+				mediaRecorder.getSurface().unlockCanvasAndPost(canvas);
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
 		}
 
 		return rgb;
 	}
 
+	private void takePhoto() {
+		String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+		String fileName = "IMG_" + timeStamp + ".jpg";
+
+		try {
+			// Convert the modified RGB Mat to Bitmap
+			Bitmap bitmap = Bitmap.createBitmap(lastRgb.cols(), lastRgb.rows(), Bitmap.Config.ARGB_8888);
+			org.opencv.android.Utils.matToBitmap(lastRgb, bitmap);
+
+			// Prepare content values for MediaStore
+			ContentValues values = new ContentValues();
+			values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
+			values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+			values.put(MediaStore.Images.Media.DATE_ADDED, System.currentTimeMillis() / 1000);
+			values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/MyApp"); // Save to Pictures/MyApp
+
+			// Insert image into MediaStore
+			Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+
+			if (uri != null) {
+				try (OutputStream outStream = getContentResolver().openOutputStream(uri)) {
+					if (outStream != null) {
+						bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outStream);
+						Toast.makeText(this, "Photo saved to Photos: " + uri.toString(), Toast.LENGTH_SHORT).show();
+					}
+				} catch (Exception e) {
+					e.printStackTrace();
+					Toast.makeText(this, "Failed to save photo", Toast.LENGTH_SHORT).show();
+				}
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			Toast.makeText(this, "Failed to save photo", Toast.LENGTH_SHORT).show();
+		}
+	}
+
+	private void startRecording() {
+		try {
+			// Initialize MediaRecorder
+			mediaRecorder = new MediaRecorder();
+			mediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
+			mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+
+			// Create a file to save the video
+			String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+			String videoFileName = "VID_" + timeStamp + ".mp4";
+			File videoFile = new File(getExternalFilesDir(Environment.DIRECTORY_MOVIES), videoFileName);
+			videoFilePath = videoFile.getAbsolutePath();
+
+			mediaRecorder.setOutputFile(videoFilePath);
+			mediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
+			mediaRecorder.setVideoEncodingBitRate(10000000);
+			mediaRecorder.setVideoFrameRate(30);
+			mediaRecorder.setVideoSize(lastRgb.cols(), lastRgb.rows());
+
+			mediaRecorder.prepare();
+			mediaRecorder.start();
+			isRecording = true;
+		} catch (Exception e) {
+			e.printStackTrace();
+			Toast.makeText(this, "Failed to start recording", Toast.LENGTH_SHORT).show();
+		}
+	}
+
+	private void stopRecording() {
+		try {
+			mediaRecorder.stop();
+			mediaRecorder.release();
+			mediaRecorder = null;
+			isRecording = false;
+
+			// Save the video to the gallery
+			ContentValues values = new ContentValues();
+			values.put(MediaStore.Video.Media.DISPLAY_NAME, new File(videoFilePath).getName());
+			values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
+			values.put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/MyApp");
+			values.put(MediaStore.Video.Media.DATE_ADDED, System.currentTimeMillis() / 1000);
+			values.put(MediaStore.Video.Media.DATA, videoFilePath);
+
+			Uri uri = getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values);
+			if (uri != null) {
+				Toast.makeText(this, "Video saved to gallery: " + uri.toString(), Toast.LENGTH_SHORT).show();
+			} else {
+				Toast.makeText(this, "Failed to save video", Toast.LENGTH_SHORT).show();
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			Toast.makeText(this, "Failed to stop recording", Toast.LENGTH_SHORT).show();
+		}
+	}
+
 	@Override
 	public void onCameraViewStopped(){
 		rgb.release();
+		lastRgb.release();
 	}
 	
 	public void draw3dCube(Mat frame, Mat cameraMatrix, MatOfDouble distCoeffs, Mat rvec, Mat tvec, Scalar color){
@@ -286,6 +517,33 @@ public class MainActivity extends AppCompatActivity implements CvCameraViewListe
 				);
 			}
 		});
+	}
+
+	@RequiresApi(api = Build.VERSION_CODES.R)
+	private void requestAllFileAccess() {
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+			if (!Environment.isExternalStorageManager()) {
+				Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+				startActivityForResult(intent, REQUEST_MANAGE_EXTERNAL_STORAGE);
+			}
+		} else {
+			if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+				ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, REQUEST_MANAGE_EXTERNAL_STORAGE);
+			}
+		}
+	}
+
+
+	@Override
+	public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+		super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+		if (requestCode == REQUEST_MANAGE_EXTERNAL_STORAGE) {
+			if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+				// Permission granted
+			} else {
+				// Permission denied
+			}
+		}
 	}
 	
 }

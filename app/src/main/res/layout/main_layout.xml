@@ -16,7 +16,7 @@
 			android:layout_width="match_parent"
 			android:layout_height="wrap_content"
 			android:text="Info"
-			android:textSize="40dp"
+			android:textSize="32dp"
 			android:textColor="#FF0000"
 			app:layout_constraintBottom_toBottomOf="parent"
 			app:layout_constraintLeft_toLeftOf="parent"
@@ -27,7 +27,7 @@
 			android:layout_height="wrap_content"
 			app:layout_constraintTop_toTopOf="parent"
 			app:layout_constraintEnd_toEndOf="parent"
-			android:layout_margin="16dp"/>
+			android:layout_margin="10dp"/>
 
 	</androidx.constraintlayout.widget.ConstraintLayout>
 
@@ -48,6 +48,31 @@
 			android:layout_centerInParent="true"
 			app:frameRate="60.0"
 			app:renderMode="RENDER_WHEN_DIRTY"/>
+
+		<androidx.constraintlayout.widget.ConstraintLayout
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			app:layout_constraintBottom_toBottomOf="parent">
+			<Button
+				android:id="@+id/btn_take_photo"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:text="Take Photo"
+				app:layout_constraintBottom_toBottomOf="parent"
+				app:layout_constraintStart_toStartOf="parent"
+				app:layout_constraintEnd_toEndOf="parent"
+				android:layout_marginBottom="60dp"/>
+
+			<Button
+				android:id="@+id/btn_record_video"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:text="Record Video"
+				app:layout_constraintBottom_toBottomOf="parent"
+				app:layout_constraintStart_toEndOf="@id/btn_take_photo"
+				app:layout_constraintEnd_toEndOf="parent"
+				android:layout_marginBottom="60dp"/>
+		</androidx.constraintlayout.widget.ConstraintLayout>
 
 
 	</androidx.constraintlayout.widget.ConstraintLayout>
